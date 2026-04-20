@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>全网互动论坛</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root { --primary: #1a73e8; --bg: #f8f9fa; }
+        body { font-family: sans-serif; background: var(--bg); margin: 0; padding-bottom: 50px; }
+        
+        /* 顶部标题 */
+        header { background: white; padding: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.1); position: sticky; top: 0; z-index: 10; }
+        
+        /* 两列布局 */
+        .container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 1000px; margin: 30px auto; padding: 0 15px; }
+        @media (max-width: 600px) { .container { grid-template-columns: 1fr; } }
+
+        /* 帖子方格 */
+        .post-card { background: white; padding: 20px; border-radius: 10px; cursor: pointer; border: 1px solid #ddd; transition: 0.2s; }
+        .post-card:hover { transform: translateY(-5px); box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+        .post-card h3 { margin: 0 0 10px 0; color: #333; }
+        .post-card p { color: #666; font-size: 14px; }
+
+        /* 悬浮发帖按钮 */
+        .fab { position: fixed; bottom: 30px; right: 30px; width: 60px; height: 60px; background: var(--primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 30px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.3); z-index: 100; border: none; }
+
+        /* 弹窗小窗口 (Modal) */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; }
+        .modal-content { background: white; width: 90%; max-width: 500px; border-radius: 15px; padding: 25px; position: relative; animation: slideIn 0.3s ease; }
+        @keyframes slideIn { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        
+        .close { position: absolute; top: 15px; right: 20px; font-size: 24px; cursor: pointer; }
+        input, textarea { width: 100%; margin-bottom: 15px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
+        textarea { height: 150px; }
+        .btn-submit { background: var(--primary); color: white; border: none; padding: 12px; width: 100%; border-radius: 8px; cursor: pointer; font-size: 16px; }
+    </style>
+</head>
+<body>
+
+<header>
+    <h2>极客社区</h2>
+    <div id="auth-status">
+        <button onclick="handleLogin()">注册/登录</button>
+    </div>
+</header>
+
+<div class="container" id="post-list">
+    </div>
+
+<button class="fab" id="post-btn" onclick="toggleModal('post-modal', true)" style="display:none;">+</button>
+
+<div id="post-modal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="toggleModal('post-modal', false)">&times;</span>
+        <h3>发布新帖子</h3>
+        <input type="text" id="new-title" placeholder="输入标题...">
+        <textarea id="new-content" placeholder="分享点什么..."></textarea>
+        <button class="btn-submit" onclick="submitPost()">确认发布</button>
+    </div>
+</div>
+
+<div id="detail-modal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="toggleModal('detail-modal', false)">&times;</span>
+        <h2 id="view-title"></h2>
+        <p id="view-author" style="color: #999; font-size: 12px;"></p>
+        <hr>
+        <div id="view-content" style="white-space: pre-wrap; line-height: 1.6;"></div>
+    </div>
+</div>
+
+<script>
+    // 配置 Supabase
+    const SUPABASE_URL = 'https://xeatsnkypbjujxtqbsdx.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_n9Zs8IgEMzsX8y5rV5ILjQ_TaEfgP3w';
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let currentUser = localStorage.getItem('username');
+
+    // 初始化
+    async function init() {
+        checkAuth();
+        fetchPosts();
+    }
+
+    function checkAuth() {
+        const statusDiv = document.getElementById('auth-status');
+        const postBtn = document.getElementById('post-btn');
+        if (currentUser) {
+            statusDiv.innerHTML = `<span>你好, ${currentUser}</span> <button onclick="logout()">退出</button>`;
+            postBtn.style.display = 'flex';
+        }
+    }
+
+    function handleLogin() {
+        const name = prompt("请输入你的昵称进行快速注册/登录：");
+        if (name) {
+            localStorage.setItem('username', name);
+            location.reload();
+        }
+    }
+
+    function logout() {
+        localStorage.removeItem('username');
+        location.reload();
+    }
+
+    function toggleModal(id, show) {
+        document.getElementById(id).style.display = show ? 'flex' : 'none';
+    }
+
+    // 获取所有帖子
+    async function fetchPosts() {
+        const { data: posts, error } = await supabase
+            .from('posts')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+        if (error) return console.error(error);
+
+        const list = document.getElementById('post-list');
+        list.innerHTML = '';
+        posts.forEach(post => {
+            const card = document.createElement('div');
+            card.className = 'post-card';
+            card.innerHTML = `<h3>${post.title}</h3><p>${post.preview}</p>`;
+            card.onclick = () => showDetail(post);
+            list.appendChild(card);
+        });
+    }
+
+    // 显示详情（含权限控制）
+    function showDetail(post) {
+        if (!currentUser) {
+            alert("🔒 请先登录后再查看详情内容！");
+            return;
+        }
+        document.getElementById('view-title').innerText = post.title;
+        document.getElementById('view-author').innerText = `作者：${post.author}`;
+        document.getElementById('view-content').innerText = post.content;
+        toggleModal('detail-modal', true);
+    }
+
+    // 发布帖子
+    async function submitPost() {
+        const title = document.getElementById('new-title').value;
+        const content = document.getElementById('new-content').value;
+
+        if (!title || !content) return alert("请填写完整！");
+
+        const { error } = await supabase.from('posts').insert([{
+            title,
+            content,
+            author: currentUser,
+            preview: content.substring(0, 50) + '...'
+        }]);
+
+        if (!error) {
+            toggleModal('post-modal', false);
+            fetchPosts();
+            alert("发布成功！");
+        }
+    }
+
+    init();
+</script>
+</body>
+</html>
